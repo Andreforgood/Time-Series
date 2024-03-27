@@ -1,0 +1,102 @@
+library(rugarch)
+library(forecast)
+
+set.seed(123)
+
+n = 200  # Number of observations
+
+# Initialize vectors to store the data
+rt = rep(0, n) # 0 repete n times
+at = rep(0, n)
+sigma = rep(0, n)
+
+a0 = 0.1
+a1 = 0.3
+a2 = -0.3
+omega = 0.1
+alpha1 = 0.12
+beta1 = 0.09
+
+for (t in 3:n) {
+  sigma[t] = sqrt(omega + alpha1 * at[t-1]^2 + beta1 * sigma[t-1]^2)
+  at[t] = sigma[t] * rnorm(1)
+  rt[t] = a0 + a1 * rt[t-1] + a2 * rt[t-2] + at[t]
+}
+
+print(rt[1:10])
+plot(rt)
+plot(rt, type = 'l', main = 'Time Series of rt', ylab = 'rt', xlab = 'Time')
+plot(sigma)
+plot(sigma, type = 'l', main = 'Time Series of sigma', ylab = 'sigma', xlab = 'Time')
+
+#Q2:Draw the ACF graphs for the simulated rt, r^2, and |rt|.
+# ACF for rt
+acf(rt)
+
+# ACF for rt squared
+acf(rt^2)
+
+# ACF for absolute rt
+acf(abs(rt))
+
+
+#Q3 Suppose you know the mean function is in an ARMA(p,q) form,
+#but you don'tknow p and q. 
+#Fit the mean function.(AR)
+mymin = Inf
+index = 0
+for (i in 0:10){
+  arma_fit = arima(rt, order = c(2,0,i))
+  print(arma_fit$aic)
+  if(mymin > arma_fit$aic){
+    mymin <- arma_fit$aic
+    index <- i
+  }
+}
+print(index)
+print(mymin)
+
+#Q4  Now, based on the mean function you obtained in 3., fit the GARCH model
+# Fit the GARCH(1,1) model to the residuals of the ARMA model
+mymodel1 = ugarchspec(variance.model = list(garchOrder = c(1,1)), 
+                  mean.model = list(armaOrder = c(2,1), include.mean = T))
+
+garch_fit1 = ugarchfit(spec = mymodel1, data = rt)
+garch_fit1
+#We can see that omega & alpha1 are statistically insignificant
+
+
+#Q5 Do a forecasting of rt and sigma^2 for t= 201 to 210.
+# Forecast the next 10 data points
+garch_forecast1 = ugarchforecast(garch_fit1, n.ahead = 10)
+
+# Extract the forecasted means and variances
+forecast_rt1 = as.numeric(fitted(garch_forecast1))
+forecast_sigma_t1 = as.numeric(sigma(garch_forecast1))
+
+# Print the forecasts
+print(forecast_rt1)
+print(forecast_sigma_t1)
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------  
+
+#Q4 Solution2
+#As alpha1 is not significant, then we regress without it. And omega must>0, so we still carry it.
+mymodel2 = ugarchspec(variance.model = list(garchOrder = c(0,1)), 
+                     mean.model = list(armaOrder = c(2,1), include.mean = T))
+
+garch_fit2 = ugarchfit(spec = mymodel2, data = rt)
+garch_fit2
+#Now all coef but omega are statistically significant
+
+#Q5 Solution2
+garch_forecast2 = ugarchforecast(garch_fit2, n.ahead = 10)
+print(garch_forecast2)
+# Extract the forecasted means and variances
+forecast_rt2 = as.numeric(fitted(garch_forecast2))
+forecast_sigma_t2 = as.numeric(sigma(garch_forecast2))
+
+# Print the forecasts
+print(forecast_rt2)
+print(forecast_sigma_t2)
+
