@@ -1,0 +1,29 @@
+n <- 500
+
+# Homework 2.1
+set.seed(1234)
+x<-arima.sim(n=n, list(ar=c(0.1,0,-0.1)), innov = rnorm(n, mean = 0, sd = 1)) + 0.01
+    # Watch out for this one
+plot(x,main="X")
+  
+# Homework 2.2
+acf(x)
+
+# Homework 2.3
+pacf(x,main="PACF")
+
+# Homework 2.4
+require(tseries)
+summary(r.arma1 <- arma(x, order = c(1, 0)),include.intercept = TRUE)
+summary(r.arma2 <- arma(x, order = c(2, 0)),include.intercept = TRUE)
+summary(r.arma3 <- arma(x, order = c(3, 0)),include.intercept = TRUE)
+summary(r.arma4 <- arma(x, order = c(4, 0)),include.intercept = TRUE)
+summary(r.arma5 <- arma(x, order = c(5, 0)),include.intercept = TRUE)
+
+# Homework 2.5
+summary(r.arma3 <- arma(x, order = c(1, 0)),include.intercept = TRUE)
+summary(r.arma3 <- arma(x, order = c(3, 0)),include.intercept = TRUE)
+
+# Homework 2.6
+Box.test(r.arma3$residuals,type='Ljung',lag=log(length(r.arma3$residuals)))
+acf(r.arma3$residuals[-1:-3])
