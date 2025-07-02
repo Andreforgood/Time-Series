@@ -1,0 +1,112 @@
+---
+title: "TimeSeries HW5"
+author: "Dongwen Ou"
+date: "2024-05-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+## Question 1:
+```{r}
+#install.packages("dlm")
+library(dlm)
+
+# 生成数据的函数
+set.seed(0)
+n <- 200
+true_mu <- numeric(n)
+observations <- numeric(n)
+
+# 初始值
+true_mu[1] <- 0
+observations[1] <- true_mu[1] + rnorm(1, mean = 0, sd = 1)
+
+# 生成local-trend model数据
+for (t in 2:n) {
+  true_mu[t] <- true_mu[t-1] + rnorm(1, mean = 0, sd = sqrt(2))
+  observations[t] <- true_mu[t] + rnorm(1, mean = 0, sd = 1)
+}
+print(true_mu)
+print(observations)
+plot(true_mu, type = 'l')
+plot(observations, type = 'l')
+```
+
+## Question 2:
+```{r}
+# 定义卡尔曼滤波模型
+build_dlm <- function() {
+  dlmModPoly(order = 1, dV = 1, dW = 2)
+}
+
+# 运行KF and smoothing
+kf_model <- build_dlm()
+kf_fit <- dlmFilter(observations, kf_model)
+kf_smoothed <- dlmSmooth(kf_fit)
+
+kf_fit$m
+kf_fit$D.C
+kf_smoothed$s
+kf_smoothed$D.S
+
+```
+
+## Question 3:
+```{r}
+plot(observations, type = "l", col = "red", lwd = 2, ylab = "Value", xlab = "Time",
+     main = "Kalman Filter and Smoothing with R")
+lines(dropFirst(kf_fit$m), col = "blue", lwd = 2)
+lines(dropFirst(kf_smoothed$s), col = "green", lwd = 2)
+legend("topright", legend = c("Observations", "Kalman Filter Estimate", "Smoothed Estimate"),
+       col = c("red", "blue", "green"), lty = 1, lwd = 2)
+
+n <- length(kf_fit$m)  
+length(observations)
+filtered_CI_upper <- numeric(n)
+filtered_CI_lower <- numeric(n)
+smoothed_CI_upper <- numeric(n)
+smoothed_CI_lower <- numeric(n)
+
+for (i in 1:n) {
+  filtered_means <- kf_fit$m[i]
+  smoothed_means <- kf_smoothed$s[i]
+  sd_uc <- sqrt(kf_fit$D.C[i]) 
+  filtered_CI_upper[i] <- filtered_means + 1.96 * sd_uc
+  filtered_CI_lower[i] <- filtered_means - 1.96 * sd_uc
+  sd_uc2 <- sqrt(kf_smoothed$D.S[i])
+  smoothed_CI_upper[i] <- smoothed_means + 1.96 * sd_uc2
+  smoothed_CI_lower[i] <- smoothed_means - 1.96 * sd_uc2
+}
+
+filtered_means <- kf_fit$m
+smoothed_means <- kf_smoothed$s
+
+#warnings()
+# 设置绘图布局
+par(mfrow=c(1, 2))
+# 第一张图：绘制滤波结果及其置信区间
+plot(2:length(observations), observations[2:length(observations)], type = "n", ylim = range(c(filtered_CI_lower[2:length(filtered_CI_lower)], filtered_CI_upper[2:length(filtered_CI_upper)])), xlab = "Day", ylab = "Value", main = "Filtered State Estimates with Confidence Intervals")
+lines(1:length(observations), observations, col = "grey", lwd = 1)
+lines(1:length(filtered_means), filtered_means, col = "blue")
+lines(2:length(filtered_CI_upper), filtered_CI_upper[2:length(filtered_CI_upper)], col = "blue", lty = 2)
+lines(2:length(filtered_CI_lower), filtered_CI_lower[2:length(filtered_CI_lower)], col = "blue", lty = 2)
+legend("topright", legend = c("Observations", "Filtered Mean", "Filtered CI"), col = c("grey", "blue", "blue"), lty = c(1, 1, 2), lwd = c(1, 1, 1))
+
+# 第二张图：绘制平滑结果及其置信区间
+plot(1:length(observations), observations, type = "n", ylim = range(c(smoothed_CI_lower, smoothed_CI_upper)), xlab = "Day", ylab = "Value", main = "Smoothed State Estimates with Confidence Intervals")
+lines(1:length(observations), observations, col = "grey", lwd = 1)
+lines(1:length(smoothed_means), smoothed_means, col = "red")
+lines(1:length(smoothed_CI_upper), smoothed_CI_upper, col = "red", lty = 2)
+lines(1:length(smoothed_CI_lower), smoothed_CI_lower, col = "red", lty = 2)
+legend("topright", legend = c("Observations", "Smoothed Mean", "Smoothed CI"), col = c("grey", "red", "red"), lty = c(1, 1, 2), lwd = c(1, 1, 1))
+
+```
+
+
