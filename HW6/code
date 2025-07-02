@@ -1,0 +1,146 @@
+---
+title: "Time Series HW6"
+author: "Dongwen Ou"
+date: "2024-05-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+## Question 1:
+```{r}
+set.seed(33)
+
+# 定义AR(3)模型的参数
+n <- 200
+R <- numeric(n)
+a <- rnorm(n)  # 白噪声序列
+
+# 初始化前3个值
+R[1:3] <- rnorm(3)
+
+# 生成时间序列数据
+for (t in 4:n) {
+  R[t] <- 0.01 + 0.1 * R[t-1] - 0.1 * R[t-3] + a[t]
+}
+
+# 查看前10个生成的数据点
+head(R, 110)
+
+plot(R,type = 'l')
+
+```
+## Question 2:
+```{r}
+#install.packages("nimble")
+library(nimble)
+
+# 引入缺失值
+R_missing <- R
+R_missing[100] <- NA
+
+# 定义模型，设定初始分布
+code <- nimbleCode({
+  for(t in 4:n) {
+    R[t] ~ dnorm(phi_0 + phi_1 * R[t-1] - phi_2 * R[t-3], sd = sigma)
+  }
+  
+  phi_0 ~ dnorm(0, sd = 100)
+  phi_1 ~ dnorm(0, sd = 100)
+  phi_2 ~ dnorm(0, sd = 100)
+  sigma ~ dunif(0, 10)
+  
+  for(t in 1:3) {
+    R[t] ~ dnorm(0, sd = 10)
+  }
+})
+
+# 数据列表
+data <- list(R = R_missing)
+#print(data)
+# 定义时间序列的长度
+constants <- list(n = n)
+
+# 定义初始值
+inits <- list(phi_0 = 0, phi_1 = 0, phi_2 = 0, sigma = 1, R = R_missing)
+inits$R[is.na(inits$R)] <- 0  # 用0初始化缺失值
+#将缺失值初始化为0，以便进行Gibbs采样。
+
+# 创建NIMBLE模型
+model <- nimbleModel(code, data = data, inits = inits, constants = constants)
+
+# 编译模型
+compiled_model <- compileNimble(model)
+
+# 配置MCMC
+mcmc_conf <- configureMCMC(compiled_model, monitors = c("phi_0", "phi_1", "phi_2", "sigma", "R"))
+mcmc <- buildMCMC(mcmc_conf)
+
+# 编译MCMC
+compiled_mcmc <- compileNimble(mcmc, project = compiled_model)
+
+# 运行MCMC
+samples <- runMCMC(compiled_mcmc, niter = 6000, nburnin = 1000, thin = 1)
+
+# 提取样本
+phi_0_samples <- samples[,"phi_0"]
+phi_1_samples <- samples[,"phi_1"]
+phi_2_samples <- samples[,"phi_2"]
+sigma_samples <- samples[,"sigma"]
+R_samples <- samples[,grep("^R\\[", colnames(samples))] #选取那些列名R开头的列
+
+# 计算缺失值的估计
+R_imputed_final <- apply(R_samples, 2, mean)
+R_imputed_final[100]  # 查看估计的缺失值
+
+
+```
+## Question 3:
+```{r}
+# 引入更多缺失值
+R_missing_more <- R
+R_missing_more[100:110] <- NA
+
+# 数据列表
+data_more <- list(R = R_missing_more)
+
+# 定义初始值
+inits_more <- list(phi_0 = 0, phi_1 = 0, phi_2 = 0, sigma = 1, R = R_missing_more)
+inits_more$R[is.na(inits_more$R)] <- 0  # 用0初始化缺失值
+
+# 创建NIMBLE模型
+model_more <- nimbleModel(code, data = data_more, inits = inits_more, constants = constants)
+
+# 编译模型
+compiled_model_more <- compileNimble(model_more)
+
+# 配置MCMC
+mcmc_conf_more <- configureMCMC(compiled_model_more, monitors = c("phi_0", "phi_1", "phi_2", "sigma", "R"))
+mcmc_more <- buildMCMC(mcmc_conf_more)
+
+# 编译MCMC
+compiled_mcmc_more <- compileNimble(mcmc_more, project = compiled_model_more)
+
+# 运行MCMC
+samples_more <- runMCMC(compiled_mcmc_more, niter = 5000, nburnin = 1000, thin = 1)
+
+# 提取样本
+phi_0_samples_more <- samples_more[,"phi_0"]
+phi_1_samples_more <- samples_more[,"phi_1"]
+phi_2_samples_more <- samples_more[,"phi_2"]
+sigma_samples_more <- samples_more[,"sigma"]
+R_samples_more <- samples_more[,grep("^R\\[", colnames(samples_more))] 
+
+# 计算缺失值的估计
+R_imputed_final_more <- apply(R_samples_more, 2, mean)
+R_imputed_final_more[100:110]  # 查看估计的缺失值
+
+```
+
+
