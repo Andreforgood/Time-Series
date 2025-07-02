@@ -1,0 +1,118 @@
+---
+title: "Time Series HW7"
+author: "Dongwen Ou"
+date: "2024-05-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+## Question 1:
+```{r}
+library(MASS)
+#install.packages('vars')
+library(vars)
+
+set.seed(123)
+
+# 定义参数
+phi0 <- c(0.2, 0.4)
+Phi <- matrix(c(0.2, 0.3, -0.6, 1.1), nrow = 2)
+Sigma <- matrix(c(2, 1, 1, 1), nrow = 2)
+
+# 定义时间长度
+n <- 200
+
+# 生成时间序列数据
+ft <- matrix(0, nrow = n, ncol = 2) #每一行是一个二维数据点
+at <- mvrnorm(n, mu = c(0, 0), Sigma = Sigma) #生成多维白噪声
+
+# 初始值（第一行）
+ft[1, ] <- phi0 + at[1, ]
+
+# 生成数据
+for (t in 2:n) {
+  ft[t, ] <- phi0 + Phi %*% ft[t - 1, ] + at[t, ] #第t行用t-1行算
+}
+
+# 转换为数据框
+ft_df <- data.frame(time = 1:n, f1 = ft[, 1], f2 = ft[, 2])
+head(ft_df)
+
+```
+## Question 2:
+```{r}
+#install.packages('MTS')
+library(MTS)
+
+# 将数据转换为时间序列对象
+ts_data <- ts(ft, start = 1, frequency = 1)
+#start = 1 表示时间序列从第1个时间点开始，frequency = 1 表示数据的频率为1（即每个时间点都有一个数据点）。
+
+best_aic <- Inf
+best_order <- c(0, 0)
+best_model <- NULL
+
+for (p in 0:3) {
+  for (q in 0:3) {
+    model <- try(VARMA(ts_data, p = p, q = q), silent = TRUE)
+    #某些阶数组合可能会导致拟合过程失败，silent = TRUE 参数使得 try 函数在捕获错误时不打印错误信息
+    if (class(model) != "try-error") {
+      aic <- model$aic
+      if (aic < best_aic) {
+        best_aic <- aic
+        best_order <- c(p, q)
+        best_model <- model
+      }
+    }
+  }
+}
+
+# 输出最优模型的阶数和AIC
+best_order
+best_aic
+
+summary(best_model)
+
+# 获取残差
+residuals <- best_model$residuals
+best_model$residuals
+best_model
+
+# 绘制残差的ACF和PACF图
+acf(residuals, main="ACF of VARMA Model Residuals")
+pacf(residuals, main="PACF of VARMA Model Residuals")
+
+# 获取残差的列数（变量数）
+num_vars <- ncol(residuals)
+
+# 设置图形布局
+par(mfrow = c(num_vars, 2))  # 调整布局以适应多个Q-Q图和直方图
+
+# 分别进行Shapiro-Wilk正态性检验，并绘制Q-Q图和直方图
+for (i in 1:num_vars) {
+  # Shapiro-Wilk正态性检验
+  shapiro_test_result <- shapiro.test(residuals[, i])
+  print(paste("Shapiro-Wilk test for Variable", i))
+  print(shapiro_test_result)
+  
+  # Ljung-Box检验
+  lb_test <- Box.test(residuals[, i], lag = 10, type = "Ljung-Box")
+  print(paste("Ljung-Box test for Variable", i))
+  print(lb_test)
+  # 绘制Q-Q图
+  qqnorm(residuals[, i], main = paste("Q-Q Plot for Variable", i))
+  qqline(residuals[, i], col = "red")
+  
+  # 绘制直方图
+  hist(residuals[, i], breaks = 20, main = paste("Histogram of Residuals for Variable", i))
+}
+```
+
+We can see the first variable differs a lot with the second one.
