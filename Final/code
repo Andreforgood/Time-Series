@@ -1,0 +1,463 @@
+---
+title: "Time Series Final Project"
+author: "Dongwen"
+date: "2024-06-08"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax
+for authoring HTML, PDF, and MS Word documents. For more details on
+using R Markdown see <http://rmarkdown.rstudio.com>.
+
+## Question 1(a):
+
+```{r}
+library(vars)
+library(tseries)
+#install.packages('tseries')
+
+# Load the data
+interest_rate_data <- read.table('/Users/dongwenou/Downloads/时间序列tw/Dataset-InterestRate.txt', header = FALSE)
+
+# Extract the columns for 1-year and 3-year rates
+r1t <- interest_rate_data$V1
+r3t <- interest_rate_data$V2
+
+# Combine into a data frame
+interest_rates <- data.frame(r1t, r3t)
+
+# Determine the optimal lag order using AIC and BIC
+lag_selection <- VARselect(interest_rates, lag.max = 50, type = "const")
+?VARselect
+
+# Print the selection criteria results
+print(lag_selection$selection)
+
+```
+
+According to the output of the order of VAR(p), we can choose one from
+the 4 criteria above. Here we choose BIC(SC) to fit the model:
+
+```{r}
+# Fit a VAR model with the optimal lag order
+optimal_lag <- lag_selection$selection["SC(n)"]
+var_model <- VAR(interest_rates, p = optimal_lag, type = "const")
+
+# Print the summary of the VAR model
+summary(var_model)
+
+```
+
+## Question 1(b):
+
+```{r}
+# Perform the Portmanteau test for model adequacy
+serial.test(var_model, lags.pt = 16, type = "PT.asymptotic")
+
+```
+
+p-value: as p-value \< 2.2e-16 \<0.05, we reject the null hypothesis,
+considering that the residual series is significantly auto-correlated.
+
+## Question 1(c):
+
+```{r}
+# Forecast 1-step to 12-step ahead
+forecast_var <- predict(var_model, n.ahead = 12)
+plot(forecast_var)
+print(forecast_var)
+```
+
+## Question 1(d):
+
+Cointegration is a concept in time series analysis that describes a
+long-term equilibrium relationship between multiple non-stationary time
+series variables. Even though these time series themselves are
+non-stationary, certain linear combinations of them may be stationary.
+In this case, these time series are said to be cointegrated.
+
+Let $X_t$ and $Y_t$ be two time series that are both integrated of order
+one (i.e., $X_t$ and $Y_t$ become stationary after differencing once,
+denoted as $X_t\sim I(1)$ and $Y_t\sim I(1)$. If there exists a non-zero
+constant $\alpha$ and $\beta$such that the linear combination
+$Z_t = \alpha X_t + \beta Y_t$ is stationary (denoted as $Z_t\sim I(0)$,
+then $X_t$ and $Y_t$ are said to be cointegrated.
+
+$$ Z_t = \alpha X_t + \beta Y_t $$
+
+```{r}
+# Perform the Johansen cointegration test
+coint_test <- ca.jo(interest_rates, type = "trace", ecdet = "const", K = optimal_lag)
+summary(coint_test)
+
+```
+
+r \<= 1: Test statistic: 3.71 Critical values: 7.52 (10%), 9.24 (5%),
+12.97 (1%) Since the test statistic 3.71 is smaller than all critical
+values, this indicates that at the 5% significance level, we cannot
+reject the null hypothesis of r \<= 1. This suggests that there is at
+most one cointegrating relationship.
+
+r = 0: Test statistic: 30.83 Critical values: 17.85 (10%), 19.96 (5%),
+24.60 (1%) Since the test statistic 30.83 is greater than all critical
+values, this indicates that at the 1% significance level, we reject the
+null hypothesis of r = 0. This suggests that there is at least one
+cointegrating relationship.
+
+The test results indicate that at the 5% significance level, there is at
+least one cointegrating relationship between the 1-year and 3-year
+interest rate series. This means that although both time series are
+non-stationary, there is a long-term equilibrium relationship between
+them.
+
+## Question 2(a)
+
+Q = list(matrix(NA))
+表示状态方程中的误差项方差矩阵为未知值，需要估计。NA
+是R中的缺失值符号，这里表示需要通过最大似然估计来确定该参数。
+
+```{r}
+#install.packages('forecast')
+#install.packages('KFAS')
+library(forecast)
+library(KFAS)
+
+# Load the data
+stock_data <- read.table("/Users/dongwenou/Downloads/时间序列tw/Dataset-Stock.txt", header = FALSE)
+
+# Extract the volatility series
+volatility <- stock_data$V1
+
+# Define the local trend model
+model <- SSModel(volatility ~ SSMtrend(1, Q = list(matrix(NA))), H = matrix(NA))
+
+# Estimate the model parameters using maximum likelihood
+fit <- fitSSM(model, inits = c(0.1, 0.1)) #给定初始值为0.1
+
+# Extract the estimated model
+estimated_model <- fit$model
+fit$optim.out
+# Print the estimated parameters
+print(estimated_model)
+summary(estimated_model)
+
+#Write down the exact equation of my estimated model:
+H_est <- fit$model$H
+Q_est <- fit$model$Q
+cat("Estimated variance of observation equation (sigma_e^2):", H_est, "\n")
+cat("Estimated variance of state equation (sigma_eta^2):", Q_est, "\n")
+
+cat("The exact equations of the estimated model are:\n")
+cat("y_t = mu_t + e_t, e_t ~ N(0,", H_est, ")\n")
+cat("mu_{t+1} = mu_t + eta_t, eta_t ~ N(0,", Q_est, ")\n")
+```
+
+## Question 2(b):
+
+```{r}
+# 应用Kalman滤波
+filtered <- KFS(estimated_model, filtering = "state")
+
+# 提取滤波后的状态估计值
+filtered_mu <- filtered$alphahat
+
+# 提取置信区间
+filtered_var <- filtered$V[1, 1, ]
+filtered_ci_upper <- filtered_mu + 1.96 * sqrt(filtered_var)
+filtered_ci_lower <- filtered_mu - 1.96 * sqrt(filtered_var)
+
+# 绘制结果
+plot(filtered_mu, type = "l", col = "blue", ylim = range(c(filtered_ci_lower, filtered_ci_upper)), 
+     ylab = expression(mu[t]), xlab = "Time", main = "Filtered State with 95% Confidence Interval")
+lines(filtered_ci_upper, col = "red", lty = 2)
+lines(filtered_ci_lower, col = "red", lty = 2)
+legend("topright", legend = c("Filtered State", "95% CI"), col = c("blue", "red"), lty = c(1, 2))
+```
+
+In the context of Kalman filtering, "filtered variables" refer to the
+estimates of the current state variable μt given the observed data
+y1,y2,…,yt. Specifically, the filtered variables are the conditional
+expectation and variance of the state variable.
+
+$$ \text{Prediction Step} $$
+
+$$ \hat{\mu}_{t\mid t-1} = \hat{\mu}_{t-1} $$
+
+$$ P_{t\mid t-1} = P_{t-1} + \sigma_\eta^2 $$
+
+$$ K_t = \frac{P_{t\mid t-1}}{P_{t\mid t-1} + \sigma_e^2} $$
+
+$$ \hat{\mu}_t = \hat{\mu}_{t\mid t-1} + K_t (y_t - \hat{\mu}_{t\mid t-1}) $$
+
+$$ P_t = (1-K_t)P_{t\mid t-1} $$
+
+## Question 2(c):
+
+```{r}
+# 定义局部趋势模型
+model <- SSModel(volatility ~ SSMtrend(1, Q = list(matrix(NA))), H = matrix(NA))
+
+# 使用最大似然估计模型参数，并提供初始值
+fit <- fitSSM(model, inits = c(0.1, 0.1))
+
+# 提取估计后的模型
+estimated_model <- fit$model
+
+# 应用Kalman平滑
+smoothed <- KFS(estimated_model, smoothing = "state")
+
+# 提取平滑后的状态估计值
+smoothed_mu <- smoothed$alphahat
+
+# 提取置信区间
+smoothed_var <- smoothed$V[1, 1, ]
+smoothed_ci_upper <- smoothed_mu + 1.96 * sqrt(smoothed_var)
+smoothed_ci_lower <- smoothed_mu - 1.96 * sqrt(smoothed_var)
+
+# 绘制结果
+plot(smoothed_mu, type = "l", col = "blue", ylim = range(c(smoothed_ci_lower, smoothed_ci_upper)), 
+     ylab = expression(mu[t]), xlab = "Time", main = "Smoothed State with 95% Confidence Interval")
+lines(smoothed_ci_upper, col = "red", lty = 2)
+lines(smoothed_ci_lower, col = "red", lty = 2)
+legend("topright", legend = c("Smoothed State", "95% CI"), col = c("blue", "red"), lty = c(1, 2))
+
+```
+
+“平滑变量”（Smoothed
+Variables）的数学表达式是指在给定整个观测数据的条件下，当前状态变量mu的估计值。平滑变量利用了整个时间序列的信息，因此比滤波变量更精确。
+
+Below are the mathematical explanation:
+
+$$ \text{Smoothed Variables} $$
+
+$$ \hat{\mu}_t^{(s)} = \mathbb{E}[\mu_t \mid y_1, y_2, \ldots, y_T] $$
+
+$$ \text{Var}(\mu_t \mid y_1, y_2, \ldots, y_T) $$
+
+$$ \text{Forward Filtering} $$
+
+$$ \hat{\mu}_{t \mid t-1} = \hat{\mu}_{t-1} $$
+
+$$ P_{t \mid t-1} = P_{t-1} + \sigma_\eta^2 $$
+
+$$ K_t = \frac{P_{t \mid t-1}}{P_{t \mid t-1} + \sigma_e^2} $$
+
+$$ \hat{\mu}_t = \hat{\mu}_{t \mid t-1} + K_t (y_t - \hat{\mu}_{t \mid t-1}) $$
+
+$$ P_t = (1 - K_t) P_{t \mid t-1} $$
+
+$$ \text{Backward Filtering} $$
+
+$$ \hat{\mu}_t^{(s)} = \hat{\mu}_t + P_t J_{t+1} (\hat{\mu}_{t+1}^{(s)} - \hat{\mu}_{t+1 \mid t}) $$
+
+$$ P_t^{(s)} = P_t + J_{t+1} (P_{t+1}^{(s)} - P_{t+1 \mid t}) J_{t+1}^T $$
+
+$$ J_{t+1} = P_t F_{t+1}^T (P_{t+1 \mid t})^{-1} $$
+
+## Question 3 (a)(b)(c):
+
+```{r}
+
+library(MCMCpack)
+library(fGarch)
+
+# 加载数据
+ge_stock_data <- read.table("/Users/dongwenou/Downloads/时间序列tw/Data-GEstock.txt", header = FALSE)
+log_returns <- ge_stock_data$V1
+
+# 初始化参数
+alpha_10 <- 1
+alpha_11 <- 1
+alpha_12 <- 1
+alpha_20 <- 1
+alpha_21 <- 1
+alpha_22 <- 1
+beta_1 <- 1
+beta_2 <- 1
+e1 <- 0.5
+e2 <- 0.5
+s_t <- sample(1:2, length(log_returns), replace = TRUE)
+
+# Gibbs采样迭代
+num_iterations <- 7500
+burn_in <- 5000
+
+# 存储结果
+alpha_10_samples <- numeric(num_iterations)
+alpha_11_samples <- numeric(num_iterations)
+alpha_12_samples <- numeric(num_iterations)
+alpha_20_samples <- numeric(num_iterations)
+alpha_21_samples <- numeric(num_iterations)
+alpha_22_samples <- numeric(num_iterations)
+beta_1_samples <- numeric(num_iterations)
+beta_2_samples <- numeric(num_iterations)
+e1_samples <- numeric(num_iterations)
+e2_samples <- numeric(num_iterations)
+s_t_samples <- matrix(0, nrow = num_iterations, ncol = length(log_returns))
+
+# Griddy Gibbs for alpha_ij
+grid_points <- seq(-1, 1, length.out = 100) # 定义 alpha_ij 的网格点
+
+for (iter in 1:num_iterations) {
+  # 更新状态序列 s_t
+  h_t <- numeric(length(log_returns))
+  for (t in 2:length(log_returns)) {
+    if (s_t[t-1] == 1) {
+      h_t[t] <- alpha_10 + alpha_11 * h_t[t-1] + alpha_12 * log_returns[t-1]^2
+    } else {
+      h_t[t] <- alpha_20 + alpha_21 * h_t[t-1] + alpha_22 * log_returns[t-1]^2
+    }
+    
+    # 确保 h_t 为正数
+    h_t[t] <- pmax(h_t[t], .Machine$double.eps)
+    
+    prob_s1 <- dnorm(log_returns[t], mean = beta_1 * sqrt(h_t[t]), sd = sqrt(h_t[t])) * (ifelse(s_t[t-1] == 1, 1 - e1, e2))
+    prob_s2 <- dnorm(log_returns[t], mean = beta_2 * sqrt(h_t[t]), sd = sqrt(h_t[t])) * (ifelse(s_t[t-1] == 2, 1 - e2, e1))
+    
+    # 确保概率为正数并处理NA
+    prob_s1 <- ifelse(is.na(prob_s1), .Machine$double.eps, pmax(prob_s1, .Machine$double.eps))
+    prob_s2 <- ifelse(is.na(prob_s2), .Machine$double.eps, pmax(prob_s2, .Machine$double.eps))
+    
+    # 归一化概率
+    total_prob <- prob_s1 + prob_s2
+    prob_s1 <- prob_s1 / total_prob
+    prob_s2 <- prob_s2 / total_prob
+    
+    s_t[t] <- sample(1:2, 1, prob = c(prob_s1, prob_s2))
+  }
+  
+
+  # 使用 Griddy Gibbs 更新 alpha_ij
+  alpha_11_probs <- sapply(grid_points, function(a11) {
+    log_prob <- 0
+    for (t in 2:length(log_returns)) {
+      if (s_t[t-1] == 1) {
+        h_t[t] <- alpha_10 + a11 * h_t[t-1] + alpha_12 * log_returns[t-1]^2
+        h_t[t] <- pmax(h_t[t], .Machine$double.eps)
+        log_prob <- log_prob + dnorm(log_returns[t], mean = beta_1 * sqrt(h_t[t]), sd = sqrt(h_t[t]), log = TRUE)
+      }
+    }
+    return(log_prob)
+  })
+  alpha_11_probs <- exp(alpha_11_probs - max(alpha_11_probs))
+  alpha_11_probs <- alpha_11_probs / sum(alpha_11_probs)
+  alpha_11 <- sample(grid_points, 1, prob = alpha_11_probs)
+
+  alpha_21_probs <- sapply(grid_points, function(a21) {
+    log_prob <- 0
+    for (t in 2:length(log_returns)) {
+      if (s_t[t-1] == 2) {
+        h_t[t] <- alpha_20 + a21 * h_t[t-1] + alpha_22 * log_returns[t-1]^2
+        h_t[t] <- pmax(h_t[t], .Machine$double.eps)
+        log_prob <- log_prob + dnorm(log_returns[t], mean = beta_2 * sqrt(h_t[t]), sd = sqrt(h_t[t]), log = TRUE)
+      }
+    }
+    return(log_prob)
+  })
+  alpha_21_probs <- exp(alpha_21_probs - max(alpha_21_probs))
+  alpha_21_probs <- alpha_21_probs / sum(alpha_21_probs)
+  alpha_21 <- sample(grid_points, 1, prob = alpha_21_probs)
+
+  # 更新 GARCH 参数 alpha_ij 和 beta_i
+  alpha_10 <- rnorm(1, mean = alpha_10, sd = 0.01)
+  alpha_12 <- rnorm(1, mean = alpha_12, sd = 0.01)
+  alpha_20 <- rnorm(1, mean = alpha_20, sd = 0.01)
+  alpha_22 <- rnorm(1, mean = alpha_22, sd = 0.01)
+  beta_1 <- rnorm(1, mean = beta_1, sd = 0.01)
+  beta_2 <- rnorm(1, mean = beta_2, sd = 0.01)
+
+  # 更新状态转移概率 e1 和 e2
+  e1 <- rbeta(1, shape1 = 1 + sum(s_t[-1] == 2 & s_t[-length(s_t)] == 1), shape2 = 1 + sum(s_t[-1] == 1 & s_t[-length(s_t)] == 1))
+  e2 <- rbeta(1, shape1 = 1 + sum(s_t[-1] == 1 & s_t[-length(s_t)] == 2), shape2 = 1 + sum(s_t[-1] == 2 & s_t[-length(s_t)] == 2))
+
+  # 存储当前迭代的结果
+  alpha_10_samples[iter] <- alpha_10
+  alpha_11_samples[iter] <- alpha_11
+  alpha_12_samples[iter] <- alpha_12
+  alpha_20_samples[iter] <- alpha_20
+  alpha_21_samples[iter] <- alpha_21
+  alpha_22_samples[iter] <- alpha_22
+  beta_1_samples[iter] <- beta_1
+  beta_2_samples[iter] <- beta_2
+  e1_samples[iter] <- e1
+  e2_samples[iter] <- e2
+  s_t_samples[iter, ] <- s_t  # 存储当前迭代的状态序列
+  print(iter)
+}
+
+# 去掉 burn-in 期的样本
+alpha_10_samples <- alpha_10_samples[(burn_in+1):num_iterations]
+alpha_11_samples <- alpha_11_samples[(burn_in+1):num_iterations]
+alpha_12_samples <- alpha_12_samples[(burn_in+1):num_iterations]
+alpha_20_samples <- alpha_20_samples[(burn_in+1):num_iterations]
+alpha_21_samples <- alpha_21_samples[(burn_in+1):num_iterations]
+alpha_22_samples <- alpha_22_samples[(burn_in+1):num_iterations]
+beta_1_samples <- beta_1_samples[(burn_in+1):num_iterations]
+beta_2_samples <- beta_2_samples[(burn_in+1):num_iterations]
+e1_samples <- e1_samples[(burn_in+1):num_iterations]
+e2_samples <- e2_samples[(burn_in+1):num_iterations]
+s_t_samples <- s_t_samples[(burn_in+1):num_iterations, ]
+
+# 绘制结果
+par(mfrow = c(3, 3))
+hist(alpha_10_samples, main = "alpha10", xlab = "alpha10")
+hist(alpha_11_samples, main = "alpha11", xlab = "alpha11")
+hist(alpha_12_samples, main = "alpha12", xlab = "alpha12")
+hist(alpha_20_samples, main = "alpha20", xlab = "alpha20")
+hist(alpha_21_samples, main = "alpha21", xlab = "alpha21")
+hist(alpha_22_samples, main = "alpha22", xlab = "alpha22")
+hist(beta_1_samples, main = "beta1", xlab = "beta1")
+hist(beta_2_samples, main = "beta2", xlab = "beta2")
+hist(e1_samples, main = "e1", xlab = "e1")
+hist(e2_samples, main = "e2", xlab = "e2")
+
+```
+
+For question (a), In the Gibbs sampling procedure, we need to specify
+the conditional sampling distributions for each parameter. These
+distributions are used to iteratively update the parameter values based
+on the current state of other parameters. Here are the conditional
+sampling distributions for each parameter in our model:
+
+$$ State\ Sequence\ \{s_t\}
+\\
+P(s_t = j \mid r_t, s_{t-1}, \alpha_{ij}, \beta_i, e_i) \propto P(r_t \mid s_t = j) \cdot P(s_t = j \mid s_{t-1})
+\\
+\text{prob}_{s1} = dnorm(r_t, \text{mean} = \beta_1 \cdot \sqrt{h_t}, \text{sd} = \sqrt{h_t}) \cdot (1 - e_1)
+\\
+\text{prob}_{s2} = dnorm(r_t, \text{mean} = \beta_2 \cdot \sqrt{h_t}, \text{sd} = \sqrt{h_t}) \cdot e_2
+$$
+
+$$ GARCH\ Parameters\ \alpha_{ij}
+\\
+\alpha_{ij}^{(new)} \sim N(\alpha_{ij}^{(current)}, \sigma^2)
+\\
+\alpha_{11}^{(new)} = \text{sample from grid points based on likelihood}
+$$
+
+$$ Risk\ Premium\ Parameters\ \beta_i
+\\
+\beta_i \mid R, S, H, \alpha \sim N(\beta_i^*, \sigma_i^2)
+\\
+\beta_i^* = \frac{\sigma_i^2 \left(n_i \bar{r}_i + \beta_{i0} / \sigma_{i0}^2\right)}{n_i + 1 / \sigma_{i0}^2}
+\\
+\sigma_i^2 = \left(n_i + \frac{1}{\sigma_{i0}^2}\right)^{-1}
+\\
+$$ $$ State\ Transition\ Probabilities\ e_i
+\\
+e_i \mid S \sim \text{Beta}(\gamma_{i1} + \ell_i, \gamma_{i2} + n_i - \ell_i)
+\\
+e_1 \sim \text{Beta}\left(1 + \sum_{t} I(s_t = 2 \mid s_{t-1} = 1), 1 + \sum_{t} I(s_t = 1 \mid s_{t-1} = 1)\right)
+\\
+e_2 \sim \text{Beta}\left(1 + \sum_{t} I(s_t = 1 \mid s_{t-1} = 2), 1 + \sum_{t} I(s_t = 2 \mid s_{t-1} = 2)\right)
+\
+$$
